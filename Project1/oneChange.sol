@@ -19,12 +19,15 @@ contract oneChange {
         address userPayId; // blockchain public address from where user wants to pay taxes.
         uint256 userPincode; // suburb or location where user stays.
         bytes32 userOneChangeId; // new Unique id is assigned to every citizen: Which is generated when user registers.
+        bool userStatus; // To check current status of this account, whether this account is available or not.
+        string additionalInformation; // This is extra information to be stored on blockchain when account is closed we will write minimal reason for closing account, or we can store on IPFS and link it.
     }
 
     // struct to store tax details and salary or income details
     struct userTaxDetails {
         bytes32 userOneChangeId;
         uint256 userAnnualIncome; // annual income as per payslip
+        uint256 userTaxToBePaid; // Calculated tax amount to be paid by the user as per user income and age - calculated and stored in this variable. 
         uint256 userTotalTaxPaid; // Total tax paid till date  
         uint256 userLastPaymentYear; // Used to calculate tax user has to pay. 
         bool userPaidTax; // whether user has paid tax this year
@@ -37,10 +40,8 @@ contract oneChange {
     // Used to restore/recover user oneChnageId with the help of userAadharNumber or previous government unique id.
     mapping (uint256 => bytes32) private aadharMappedToOneChangeId;
 
-    // Used to restore/recover user oneChnageId with the help of user tax PayId.
-    mapping ()
-    
-    
+    // Used to restore/recover user oneChangeId with the help of user tax PayId.
+    mapping (address => bytes32) private payIdMappedToOneChangeId;
 
     // List of government officials who can add citizens to this project, government officials can only be appointed by admin.
     mapping (address => bool) private approvedGovernmentOfficials;
@@ -63,8 +64,20 @@ contract oneChange {
     }
 
     // Function to generate new oneChangeId
-    function generateOneChangeId(uint256 _userAadharNumber) internal pure returns(bytes32){
+    function generateOneChangeId(uint256 _userAadharNumber) internal pure returns (bytes32) {
         return keccak256(abi.encodePacked(_userAadharNumber));
+    }
+
+    // Function to calculate tax
+    function calculateTaxAmount(uint256 _userAnnualIncome) internal pure returns (uint256) {
+        // Tax calculations based only on user annual Income, but we can use user age as well, but for this calculations we have used only income
+        if (_userAnnualIncome <= 18000){ return 0; }
+        else if (_userAnnualIncome > 18000 && _userAnnualIncome <= 45000) { return ((_userAnnualIncome - 18000)*(19))/100;}
+        else if (_userAnnualIncome > 45000 && _userAnnualIncome <= 120000) { return (((_userAnnualIncome - 45000)*(325))/1000 + 5092);}
+        else if (_userAnnualIncome > 120000 && _userAnnualIncome <= 180000) { return (((_userAnnualIncome - 120000)*(37))/100 + 29467);}
+        else { return (((_userAnnualIncome - 180000)*(45))/100 + 51667); }
+
+        // Note: Formula is designed based on information from "https://www.hrblock.com.au/tax-academy/australian-income-tax-system"
     }
 
     // Function to add population details
@@ -80,7 +93,9 @@ contract oneChange {
             userAadharNumber : _userAadharNumber,
             userPayId : _userPayId,
             userPincode : _userPincode,
-            userOneChangeId : _newUserOneChangeId
+            userOneChangeId : _newUserOneChangeId,
+            userStatus : true,
+            additionalInformation : ""
         });
 
         // Create record of tax details
@@ -88,6 +103,7 @@ contract oneChange {
             userOneChangeId : _newUserOneChangeId,
             userAnnualIncome : _userAnnualIncome,
             userTotalTaxPaid : 0,
+            userTaxToBePaid : calculateTaxAmount(_userAnnualIncome),
             userLastPaymentYear : 0,
             userPaidTax : false
         });
@@ -100,13 +116,111 @@ contract oneChange {
 
         // Map the user aadhar address - Previous Unique Govt Id with newly generated One Change Id.
         aadharMappedToOneChangeId[_userAadharNumber] = _newUserOneChangeId;
+
+        // Map the user payid with newly generated One Change Id.
+        payIdMappedToOneChangeId[_userPayId] = _newUserOneChangeId;
     }
-    
+
+    // Functions to update details : Update user Full Name
+    function updateUserFullName (string calldata _updUserFullName, bytes32 _userOneChangeId) public onlyGovtOfficials {
+        userDetails storage updateUserDetails = populationDetails[_userOneChangeId];
+        updateUserDetails.userFullName = _updUserFullName;
+    }
+
+    // Functions to update details : Update user Pay Id
+    function updateUserPayId (address _updUserPayId, bytes32 _userOneChangeId) public onlyGovtOfficials {
+        userDetails storage updateUserDetails = populationDetails[_userOneChangeId];
+        address oldPayId = updateUserDetails.userPayId;
+        updateUserDetails.userPayId = _updUserPayId;
+
+        // delete old payid mapping
+        payIdMappedToOneChangeId[oldPayId] = 0x00;
+
+        // update payId to oneChangeId mapping
+        payIdMappedToOneChangeId[_updUserPayId] = updateUserDetails.userOneChangeId;
+    }
+
+    // Functions to update details : Update user level
+    function updateUserPayId (uint8 _userLevel, bytes32 _userOneChangeId) public onlyGovtOfficials {
+        userDetails storage updateUserDetails = populationDetails[_userOneChangeId];
+        updateUserDetails.userLevel = _userLevel;
+    }
+
+    // Functions to update details: Update User annual Income
+    function updateUserAnnualIncome (uint256 _updUserAnnualIncome, bytes32 _userOneChangeId) public onlyGovtOfficials {
+        userTaxDetails storage updateUserTaxDetails = populationTaxDetails[_userOneChangeId];
+        updateUserTaxDetails.userAnnualIncome = _updUserAnnualIncome;
+        updateUserTaxDetails.userTaxToBePaid = calculateTaxAmount(_updUserAnnualIncome);
+    }
+
     // function to retrive user OneChangeId
     function getOneChangeId(uint256 _userAadharNumber) public view returns (bytes32) {
         return (aadharMappedToOneChangeId[_userAadharNumber]);
     }
 
-    // function to pay taxes 
+    // function to get tax information of an user profile - Directly loggedin user can access
+    function getMyTaxProfile () public view returns (uint256, uint256, uint256, uint256, bool){
+        bytes32 payeeOneChangeId = payIdMappedToOneChangeId[msg.sender];
+        require (payeeOneChangeId != 0x000, "User with this PayId is not registered.");
+        
+        // If user is registered, then update the contract details
+        userTaxDetails memory payeeTaxDetails = populationTaxDetails[payeeOneChangeId];
+        return (payeeTaxDetails.userAnnualIncome, payeeTaxDetails.userTaxToBePaid, payeeTaxDetails.userTotalTaxPaid, payeeTaxDetails.userLastPaymentYear, payeeTaxDetails.userPaidTax);
+    }
 
+    // function to get tax information of an user profile - only govt official
+    function getUserTaxProfile (address _userPayId) public onlyGovtOfficials view returns (uint256, uint256, uint256, uint256, bool) {
+        bytes32 payeeOneChangeId = payIdMappedToOneChangeId[_userPayId];
+        require (payeeOneChangeId != 0x000, "User with this PayId is not registered.");
+        
+        // If user is registered, then update the contract details
+        userTaxDetails memory payeeTaxDetails = populationTaxDetails[payeeOneChangeId];
+        return (payeeTaxDetails.userAnnualIncome, payeeTaxDetails.userTaxToBePaid, payeeTaxDetails.userTotalTaxPaid, payeeTaxDetails.userLastPaymentYear, payeeTaxDetails.userPaidTax);
+    }
+
+    // function to get user details - only govt official 
+    function getRegisteredUserDetails (bytes32 _userOneChangeId) public onlyGovtOfficials view returns (string memory, uint8, uint8, uint256, address, uint256, bytes32, bool, string memory){
+        // retriving details
+        userDetails memory registeredUserDetails = populationDetails[_userOneChangeId];
+        return (registeredUserDetails.userFullName, registeredUserDetails.userAge, registeredUserDetails.userLevel, registeredUserDetails.userAadharNumber, registeredUserDetails.userPayId, registeredUserDetails.userPincode, registeredUserDetails.userOneChangeId, registeredUserDetails.userStatus, registeredUserDetails.additionalInformation);
+    }
+
+    // function to pay taxes - automatically takes account names
+    function wantToPayTax() public payable {
+        bytes32 payeeOneChangeId = payIdMappedToOneChangeId[msg.sender];
+        require (payeeOneChangeId != 0x000, "User with this PayId is not registered.");
+        
+        // check the account status
+        userDetails memory payeeDetails = populationDetails[payeeOneChangeId];
+        require (payeeDetails.userStatus == true, "Sorry, This user profile is closed");
+
+        // If user is registered, then update the contract details
+        userTaxDetails storage payeeTaxDetails = populationTaxDetails[payeeOneChangeId];
+        
+        // Checking whether tax amount to be paid is equal to paid amount
+        require (payeeTaxDetails.userTaxToBePaid == msg.value, "Invalid funds, please check tax information");
+
+        // if everything is perfect we are processing transaction        
+        payeeTaxDetails.userTotalTaxPaid += msg.value;
+        payeeTaxDetails.userLastPaymentYear = block.timestamp;
+        payeeTaxDetails.userPaidTax = true;
+    }
+
+    // Function to close the account
+    function lockAccount (bytes32 _userOneChangeId, address _userPayId) public onlyGovtOfficials {
+
+        // Retriving records
+        userDetails storage closingUserProfile = populationDetails[_userOneChangeId]; 
+
+        // Checking given details
+        require (closingUserProfile.userPayId == _userPayId, "Incorrect Information");
+
+        closingUserProfile.userStatus = false;
+        closingUserProfile.additionalInformation = "closed due to xxxxx reason";
+    }
+
+    // function to return govt balance
+    function getGovtBalance () public view returns(uint256){
+        return address(this).balance;
+    }
 }
