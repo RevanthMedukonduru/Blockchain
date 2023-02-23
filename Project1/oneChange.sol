@@ -223,4 +223,38 @@ contract oneChange {
     function getGovtBalance () public view returns(uint256){
         return address(this).balance;
     }
+
+    // ------------------ Functions that are called from another contract ------------------
+    
+    mapping (address => bool) private permissionedContracts;
+
+    // modifier for permissioned contracts
+    modifier onlyPermissionedContracts() {
+        require(permissionedContracts[msg.sender] == true, "Caller contract doesn't has permission to access oneChange contract.");
+        _;
+    }
+
+    // address of this contract
+    function getThisContractAddress() public view returns (address) {
+        return address(this);
+    } 
+
+    // function to update who can access current contracts data from external contracts - only admin
+    function addPermissionedContracts (address _contractAddress) public onlyAdmin {
+        permissionedContracts[_contractAddress] = true;
+    }
+
+    // function to return whether user has paid tax this year or not
+    function getUserTaxPayStatus(address _payeeAddress) external onlyPermissionedContracts view returns(bool) {
+        // Checking whether user with public address is registered in the system or not.
+        bytes32 payeeOneChangeId = payIdMappedToOneChangeId[_payeeAddress];
+        require (payeeOneChangeId != 0x000, "User with this PayId is not registered.");
+
+        // if user exists we will check whether user paid tax or not
+        userTaxDetails memory payeeTaxDetails = populationTaxDetails[payeeOneChangeId];
+        if (block.timestamp - payeeTaxDetails.userLastPaymentYear <= 365 days && payeeTaxDetails.userPaidTax){ return true; }
+        else { return false; }
+    }
+
+    
 }
