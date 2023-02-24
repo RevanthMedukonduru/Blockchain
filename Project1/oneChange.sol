@@ -46,6 +46,9 @@ contract oneChange {
     // List of government officials who can add citizens to this project, government officials can only be appointed by admin.
     mapping (address => bool) private approvedGovernmentOfficials;
 
+    // Counts population in the particular area
+    mapping (uint256 => uint256) private populationCensusByPincode;
+
     // Modifier - Only admin or Contract creator
     modifier onlyAdmin() {
         require (msg.sender == admin, "Only admin can access this functionality.");
@@ -119,6 +122,9 @@ contract oneChange {
 
         // Map the user payid with newly generated One Change Id.
         payIdMappedToOneChangeId[_userPayId] = _newUserOneChangeId;
+
+        // Increment or update the population count by pincode - population census by pincode
+        populationCensusByPincode[_userPincode]++;
     }
 
     // Functions to update details : Update user Full Name
@@ -144,6 +150,17 @@ contract oneChange {
     function updateUserPayId (uint8 _userLevel, bytes32 _userOneChangeId) public onlyGovtOfficials {
         userDetails storage updateUserDetails = populationDetails[_userOneChangeId];
         updateUserDetails.userLevel = _userLevel;
+    }
+
+    // Function to update details: Update user pincode
+    function updateUserPincode (uint256 _updUserPincode, bytes32 _userOneChangeId) public onlyGovtOfficials {     
+        userDetails storage updateUserDetails = populationDetails[_userOneChangeId];
+        uint256 previousPincode = updateUserDetails.userPincode;
+        updateUserDetails.userPincode = _updUserPincode;
+
+        // update population census by pincode
+        populationCensusByPincode[previousPincode]--;
+        populationCensusByPincode[_updUserPincode]++;
     }
 
     // Functions to update details: Update User annual Income
@@ -264,5 +281,10 @@ contract oneChange {
 
         //retriving the user details
         return populationDetails[payeeOneChangeId].userLevel;
-    } 
+    }
+
+    // function to return population census in a particular area / pincode
+    function getPopulationCensusByPincode(uint256 _pincode) external onlyPermissionedContracts view returns (uint256) {
+        return populationCensusByPincode[_pincode];
+    }
 }
