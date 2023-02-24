@@ -256,5 +256,13 @@ contract oneChange {
         else { return false; }
     }
 
-    
+    // function to return userlevel
+    function getUserLevel(address _payeeAddress) external onlyPermissionedContracts view returns (uint8){
+        // checking whether user with this public address is registered in the system or not
+        bytes32 payeeOneChangeId = payIdMappedToOneChangeId[_payeeAddress];
+        require (payeeOneChangeId != 0x000, "User with this PayId is not registered.");
+
+        //retriving the user details
+        return populationDetails[payeeOneChangeId].userLevel;
+    } 
 }
