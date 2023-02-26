@@ -12,9 +12,9 @@ contract oneChange {
 
     // struct to store details of a citizen
     struct userDetails {
-        string userFullName;
+        string userFullName; // For an organisation the user full name is company name.
         uint8 userAge; // User age, it is useful in tax calculations.
-        uint8 userLevel; // 1: Citizen 2: People Representative like minister(MLA, MP, Chief minister, Prime minister) 3: Government Organisation 4: Private Organisation
+        uint8 userLevel; // 1: Citizen 2: People Representative like minister(MLA, MP, Chief minister, Prime minister) 3: A company that is registered as Private Organisation 4: A Company that is registered as private + govt organisation
         uint256 userAadharNumber; // Unique Id given by government - by which till now user is recognised uniquely.
         address userPayId; // blockchain public address from where user wants to pay taxes.
         uint256 userPincode; // suburb or location where user stays.
@@ -286,5 +286,10 @@ contract oneChange {
     // function to return population census in a particular area / pincode
     function getPopulationCensusByPincode(uint256 _pincode) external onlyPermissionedContracts view returns (uint256) {
         return populationCensusByPincode[_pincode];
+    }
+
+    // function to return username
+    function getUserFullName(address _organisationAddress) external onlyPermissionedContracts view returns (string memory) {
+        return populationDetails[payIdMappedToOneChangeId[_organisationAddress]].userFullName;
     }
 }
