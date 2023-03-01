@@ -3,11 +3,32 @@ pragma solidity >=0.4.0 <=0.9.0;
 import "./oneChange.sol";
 
 contract ProjectManager{
-    
+
+    mapping (uint256 => Project[]) private projectsInPincode;
+
+    function createProjectProposal(address _oneChangeContractAddress, address _projectOwner, string memory _projectName, string memory _projectDescription, uint256 _projectCosts, uint256[] memory _projectAreas) public {
+        // only People Representatives can generate a project proposal 
+        oneChange oneChangeTemp = oneChange (_oneChangeContractAddress);
+        require (oneChangeTemp.getUserLevel(msg.sender) == 2, "Access Denied: Only people representatives can only create project proposals");
+
+        // Create a project proposal
+        Project newProject = new Project(_oneChangeContractAddress, _projectOwner, _projectName, _projectDescription, _projectCosts, _projectAreas);
+        for (uint256 i = 0; i < _projectAreas.length; i++) {
+            projectsInPincode[_projectAreas[i]].push(newProject);
+        }
+    }
+
+    function getDeployedProjectAddress(uint256 _pincode, uint256 _index) public view returns(address) {
+        return address(projectsInPincode[_pincode][_index]);
+    }
+
+    function getThisContractAddress() public view returns (address) {
+        return address(this);
+    }
 }
 
 contract Project{
-    // Creating Campaign structure
+    // Creating Campaign structure  
     struct ProposalDetails {
         address projectOwner; // Person who has made this contract
         string projectName; // Name of the campaign.
@@ -34,6 +55,12 @@ contract Project{
 
     // project address - oneChange
     address private oneChangeContractAddress;
+
+    // modifier only project owner can access a particular function
+    modifier onlyOwner() {
+        require(msg.sender == proposalDetails.projectOwner, "Only Project Owner can access this functionality.");
+        _;
+    }
 
     // constructor defining the initial variables required for this contract
     constructor(address _oneChangeContractAddress, address _projectOwner, string memory _projectName, string memory _projectDescription, uint256 _projectCosts, uint256[] memory _projectAreas) {
@@ -88,6 +115,8 @@ contract Project{
         uint8 temp = oneChangeTemp.getUserLevel(msg.sender);
         require(((temp == 3) || (temp == 4)), "To quote or enter tender price, you must first register as an organization");
 
+        require (oneChangeTemp.getUserTaxPayStatus(msg.sender) == true, "Tax payment is outstanding and must be paid before proceeding");
+
         // Checking whether they proposed a price less than or equal to estimated costs for this project
         require( _proposedPrice <= proposalDetails.estimatedProjectPrice, "The quoted price is more than the estimated price for this project. Please revise your quote.");
 
@@ -95,18 +124,24 @@ contract Project{
         if (_proposedPrice < proposalDetails.finalProjectPrice || proposalDetails.finalProjectPrice == 0){
             proposalDetails.finalProjectPrice = _proposedPrice;
             proposalDetails.companyName = oneChangeTemp.getUserFullName(msg.sender);
-            proposalDetails.companyPayId = msg.sender;
+            proposalDetails.companyPayId = payable (msg.sender);
         }
     }
 
     // function to revise the estimated costs - In Case none of the organisation is happy to work for previous estimated price
-    function reviseEstimatedCosts(uint256 _revisedPrice) public {
-        // Caller of this function should be same as the person who deployed this contract
-        require (msg.sender == proposalDetails.projectOwner, "Only the caller who deployed this contract can call this function.");
-
+    function reviseEstimatedCosts(uint256 _revisedPrice) public onlyOwner {
         // Update the estimated costs for this project.
         proposalDetails.estimatedProjectPrice = _revisedPrice;
     }
 
     // Finalise the project 
+    function finalizeProject() public onlyOwner {
+        // Send the payment for the organisation who took this contract
+        (bool success, ) = proposalDetails.companyPayId.call{value: proposalDetails.finalProjectPrice}("");
+        require(success, "Transaction Failed: Unable to send funds to organisation");
+
+        // Update the project status 
+        proposalDetails.projectStatus = 2; // Means teder is finalised
+    }
 }
+
