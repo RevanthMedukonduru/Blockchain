@@ -147,7 +147,7 @@ contract oneChange {
     }
 
     // Functions to update details : Update user level
-    function updateUserPayId (uint8 _userLevel, bytes32 _userOneChangeId) public onlyGovtOfficials {
+    function updateUserLevel (uint8 _userLevel, bytes32 _userOneChangeId) public onlyGovtOfficials {
         userDetails storage updateUserDetails = populationDetails[_userOneChangeId];
         updateUserDetails.userLevel = _userLevel;
     }
