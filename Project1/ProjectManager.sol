@@ -6,16 +6,19 @@ contract ProjectManager{
 
     mapping (uint256 => Project[]) private projectsInPincode;
 
-    function createProjectProposal(address _oneChangeContractAddress, address _projectOwner, string memory _projectName, string memory _projectDescription, uint256 _projectCosts, uint256[] memory _projectAreas) public {
+    function createProjectProposal(address _oneChangeContractAddress, string memory _projectName, string memory _projectDescription, uint256 _projectCosts, uint256[] memory _projectAreas) public {
         // only People Representatives can generate a project proposal 
         oneChange oneChangeTemp = oneChange (_oneChangeContractAddress);
         require (oneChangeTemp.getUserLevel(msg.sender) == 2, "Access Denied: Only people representatives can only create project proposals");
 
         // Create a project proposal
-        Project newProject = new Project(_oneChangeContractAddress, _projectOwner, _projectName, _projectDescription, _projectCosts, _projectAreas);
+        Project newProject = new Project(_oneChangeContractAddress, msg.sender, _projectName, _projectDescription, _projectCosts, _projectAreas);
         for (uint256 i = 0; i < _projectAreas.length; i++) {
             projectsInPincode[_projectAreas[i]].push(newProject);
         }
+
+        // add this newly created contract to level 2 permitted contracts in oneChange contract
+        oneChangeTemp.addPermittedLevelTwoContracts(address(newProject));
     }
 
     function getDeployedProjectAddress(uint256 _pincode, uint256 _index) public view returns(address) {
@@ -37,7 +40,7 @@ contract Project{
         string companyName; // Company which is doing this project. 
         address companyPayId; // Company's Public address to which payment is sent.
         uint256 finalProjectPrice; // Finalised price for this tender.
-        uint8 projectStatus; // 0 - Project initiated; 1 - got approval from majority of voters; 2 - organisations finalised the tender and contract closed.
+        uint8 projectStatus; // 0 - Project initiated; 1 - got approval from majority of voters; 2 - atleast one organisation has submitted their tender ; 3 - organisations finalised the tender and contract closed.
     }
 
     // Defined a variavle of type ProjectDefinition
@@ -76,14 +79,22 @@ contract Project{
         });
         projectAreas = _projectAreas;
         oneChangeContractAddress = _oneChangeContractAddress;
+        populationCountUnderThisProject = getPopulationCountUnderThisProject();
+    }
+
+    // function to show only limited deals about this project to public
+    function getProposalDetails() public view returns (address _projectOwner, string memory _projectName, string memory _projectDescription, uint256 _estimatedCosts){
+        return (proposalDetails.projectOwner, proposalDetails.projectName, proposalDetails.projectDescription, proposalDetails.estimatedProjectPrice);
     }
 
     // getting population census from given pincodes
-    function getPopulationCountUnderThisProject() internal {
+    function getPopulationCountUnderThisProject() internal view returns (uint256) {
+        uint256 populationCensus = 0;
         oneChange oneChangeTemp = oneChange(oneChangeContractAddress); 
         for (uint i = 0; i<projectAreas.length; i++){
-            populationCountUnderThisProject += oneChangeTemp.getPopulationCensusByPincode(projectAreas[i]);
+            populationCensus += oneChangeTemp.getPopulationCensusByPincode(projectAreas[i]);
         }
+        return populationCensus;
     }
 
     // getting approval from voters 
@@ -121,10 +132,15 @@ contract Project{
         require( _proposedPrice <= proposalDetails.estimatedProjectPrice, "The quoted price is more than the estimated price for this project. Please revise your quote.");
 
         // Updating tender price - First Come First Win Tender (If its best quote)
-        if (_proposedPrice < proposalDetails.finalProjectPrice || proposalDetails.finalProjectPrice == 0){
+        if (_proposedPrice <= proposalDetails.finalProjectPrice || proposalDetails.finalProjectPrice == 0){
             proposalDetails.finalProjectPrice = _proposedPrice;
             proposalDetails.companyName = oneChangeTemp.getUserFullName(msg.sender);
             proposalDetails.companyPayId = payable (msg.sender);
+
+            // Update the project status
+            if(proposalDetails.projectStatus < 2){
+                proposalDetails.projectStatus = 2;
+            }
         }
     }
 
@@ -136,12 +152,14 @@ contract Project{
 
     // Finalise the project 
     function finalizeProject() public onlyOwner {
+        // The project must be in "project status = 2" : which means atleast their is one organisation who has submitted the tender.
+        require(proposalDetails.projectStatus == 2, "Bid not Recieved: We haven't recieved a single bid till now.");
+
         // Send the payment for the organisation who took this contract
-        (bool success, ) = proposalDetails.companyPayId.call{value: proposalDetails.finalProjectPrice}("");
-        require(success, "Transaction Failed: Unable to send funds to organisation");
+        oneChange oneChangeTemp = oneChange (oneChangeContractAddress);
+        oneChangeTemp.sendFunds(payable (proposalDetails.companyPayId), proposalDetails.finalProjectPrice);
 
         // Update the project status 
-        proposalDetails.projectStatus = 2; // Means teder is finalised
+        proposalDetails.projectStatus = 3; // Means teder is finalised
     }
 }
-
