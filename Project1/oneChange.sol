@@ -243,11 +243,17 @@ contract oneChange {
 
     // ------------------ Functions that are called from another contract ------------------
     
-    mapping (address => bool) private permissionedContracts;
+    mapping (address => bool) private permittedLevelOneContracts;
+    mapping (address => bool) private permittedLevelTwoContracts;
 
     // modifier for permissioned contracts
-    modifier onlyPermissionedContracts() {
-        require(permissionedContracts[msg.sender] == true, "Caller contract doesn't has permission to access oneChange contract.");
+    modifier onlyLevelOneContracts() {
+        require(permittedLevelOneContracts[msg.sender] == true, "Only Level One Contracts has permission to access.");
+        _;
+    }
+
+    modifier onlyLevelTwoContracts() {
+        require(permittedLevelTwoContracts[msg.sender] == true, "Only Level Two Contracts has permission to access.");
         _;
     }
 
@@ -256,13 +262,18 @@ contract oneChange {
         return address(this);
     } 
 
-    // function to update who can access current contracts data from external contracts - only admin
-    function addPermissionedContracts (address _contractAddress) public onlyAdmin {
-        permissionedContracts[_contractAddress] = true;
+    // function to update who can access current contracts data from external contracts (Level 1 contracts) - only admin
+    function addPermittedLevelOneContracts (address _contractAddress) public onlyAdmin {
+        permittedLevelOneContracts[_contractAddress] = true;
     }
 
+    // Function to update who can access some functions level2 contracts
+    function addPermittedLevelTwoContracts (address _contractAddress) public onlyLevelOneContracts {
+        permittedLevelTwoContracts[_contractAddress] = true;
+    }
+    
     // function to return whether user has paid tax this year or not
-    function getUserTaxPayStatus(address _payeeAddress) external onlyPermissionedContracts view returns(bool) {
+    function getUserTaxPayStatus(address _payeeAddress) external onlyLevelTwoContracts view returns(bool) {
         // Checking whether user with public address is registered in the system or not.
         bytes32 payeeOneChangeId = payIdMappedToOneChangeId[_payeeAddress];
         require (payeeOneChangeId != 0x000, "User with this PayId is not registered.");
@@ -274,7 +285,7 @@ contract oneChange {
     }
 
     // function to return userlevel
-    function getUserLevel(address _payeeAddress) external onlyPermissionedContracts view returns (uint8){
+    function getUserLevel(address _payeeAddress) external onlyLevelOneContracts view returns (uint8){
         // checking whether user with this public address is registered in the system or not
         bytes32 payeeOneChangeId = payIdMappedToOneChangeId[_payeeAddress];
         require (payeeOneChangeId != 0x000, "User with this PayId is not registered.");
@@ -284,12 +295,19 @@ contract oneChange {
     }
 
     // function to return population census in a particular area / pincode
-    function getPopulationCensusByPincode(uint256 _pincode) external onlyPermissionedContracts view returns (uint256) {
+    function getPopulationCensusByPincode(uint256 _pincode) external onlyLevelTwoContracts view returns (uint256) {
         return populationCensusByPincode[_pincode];
     }
 
     // function to return username
-    function getUserFullName(address _organisationAddress) external onlyPermissionedContracts view returns (string memory) {
+    function getUserFullName(address _organisationAddress) external onlyLevelTwoContracts view returns (string memory) {
         return populationDetails[payIdMappedToOneChangeId[_organisationAddress]].userFullName;
+    }
+
+    // function to transfer funds for the project (Using people tax money for projects)
+    function sendFunds(address payable _projectAddress, uint256 _projectPrice) external onlyLevelTwoContracts {
+        // sending funds from this contract to project contract directly
+        (bool success, ) = _projectAddress.call{value: _projectPrice}("");
+        require (success == true, "Transaction Failed: Insufficient funds in oneChange contract");
     }
 }
